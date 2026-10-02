@@ -13,8 +13,8 @@ class CitationChecker(Middleware):
         if not isinstance(claims, list) or ctx.corpus is None:
             return report
 
-        def exact_line(doc, text):
-            return any(line == text for line in doc.body.splitlines())
+        def line_supports(doc, text):
+            return any(text in line for line in doc.body.splitlines())
 
         for claim in claims:
             if not isinstance(claim, dict):
@@ -28,11 +28,11 @@ class CitationChecker(Middleware):
 
             current = ctx.corpus.get(doc_id) if doc_id else None
 
-            if current is not None and exact_line(current, text):
+            if current is not None and line_supports(current, text):
                 continue
 
             for doc in ctx.corpus.docs:
-                if doc.body in ctx.observed_text and exact_line(doc, text):
+                if doc.body in ctx.observed_text and line_supports(doc, text):
                     claim["doc_id"] = doc.doc_id
                     break
 

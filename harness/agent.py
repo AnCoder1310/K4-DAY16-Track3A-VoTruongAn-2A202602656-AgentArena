@@ -480,6 +480,13 @@ class ReActAgent:
         # one already, so a caller that does not pass one still works.
         self.corpus = corpus if corpus is not None else getattr(tools, "_corpus", None)
         self.max_steps = max(1, int(max_steps))
+
+        inner = getattr(model, "inner", model)
+        from arena.model import RealModel
+        if isinstance(inner, RealModel) or any(c.__name__ == "RealModel" for c in inner.__class__.__mro__):
+            if REAL_MODEL_PROMPT_ADDENDUM.strip() not in system_prompt:
+                system_prompt = system_prompt.rstrip() + "\n\n" + REAL_MODEL_PROMPT_ADDENDUM.strip() + "\n"
+
         self.system_prompt = system_prompt
         self.last_context: AgentContext | None = None
         # Per-run bookkeeping for the two `_parse` guards. Reset in
@@ -532,6 +539,20 @@ class ReActAgent:
             ctx.messages.append({"role": "assistant", "content": text})
 
             if parsed.kind == "final":
+                inner = getattr(self.model, "inner", self.model)
+                from arena.model import RealModel
+                is_real = isinstance(inner, RealModel) or any(c.__name__ == "RealModel" for c in inner.__class__.__mro__)
+                if is_real and len(ctx.observations) == 0 and self._final_deferrals < MAX_FINAL_DEFERRALS:
+                    self._final_deferrals += 1
+                    self._refused_final = parsed.final if isinstance(parsed.final, dict) else {}
+                    nudge = (
+                        "Bạn chưa thực hiện tìm kiếm nào. Lượt đầu tiên BẮT BUỘC là ACTION gọi search. "
+                        "Hãy gọi công cụ search để tìm kiếm tài liệu liên quan trước khi đưa ra kết luận."
+                    )
+                    ctx.observations.append(nudge)
+                    ctx.messages.append({"role": "user", "content": nudge})
+                    continue
+
                 report = parsed.final if isinstance(parsed.final, dict) else {}
                 ctx.stop_reason = "final"
                 break

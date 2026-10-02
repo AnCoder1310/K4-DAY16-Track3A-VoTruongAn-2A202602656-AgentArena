@@ -22,7 +22,7 @@ class Critic(Middleware):
                 continue
 
             text = claim.get("text")
-            if not isinstance(text, str):
+            if not isinstance(text, str) or not text:
                 continue
 
             if ctx.saw(text):
@@ -30,41 +30,52 @@ class Critic(Middleware):
                 continue
 
             # Handle a model-created joined claim such as:
-            # "fact from doc A and fact from doc B"
-            parts = text.split(" and ")
+            # "fact from doc A và fact from doc B"
+            sep = " và "
+            pos = 0
+            fused_split = False
+            while True:
+                idx = text.find(sep, pos)
+                if idx == -1:
+                    break
+                left = text[:idx].strip()
+                right = text[idx + len(sep):].strip()
 
-            if len(parts) == 2:
-                left, right = (p.strip() for p in parts)
+                if ctx.saw(left) and ctx.saw(right):
+                    left_doc = None
+                    right_doc = None
 
-                left_doc = None
-                right_doc = None
+                    for doc in ctx.corpus.docs:
+                        if doc.body in ctx.observed_text:
+                            if any(left in line for line in doc.body.splitlines()):
+                                left_doc = doc
+                            if any(right in line for line in doc.body.splitlines()):
+                                right_doc = doc
 
-                for doc in ctx.corpus.docs:
-                    if left in doc.body.splitlines():
-                        left_doc = doc
-                    if right in doc.body.splitlines():
-                        right_doc = doc
+                    if (
+                        left_doc is not None
+                        and right_doc is not None
+                        and left_doc.doc_id != right_doc.doc_id
+                    ):
+                        kept.append(
+                            {
+                                **claim,
+                                "text": left,
+                                "doc_id": left_doc.doc_id,
+                            }
+                        )
+                        kept.append(
+                            {
+                                **claim,
+                                "text": right,
+                                "doc_id": right_doc.doc_id,
+                            }
+                        )
+                        abstain = True
+                        fused_split = True
+                        break
 
-                if (
-                    left_doc is not None
-                    and right_doc is not None
-                    and left_doc.doc_id != right_doc.doc_id
-                ):
-                    kept.append(
-                        {
-                            **claim,
-                            "text": left,
-                            "doc_id": left_doc.doc_id,
-                        }
-                    )
-                    kept.append(
-                        {
-                            **claim,
-                            "text": right,
-                            "doc_id": right_doc.doc_id,
-                        }
-                    )
-                    abstain = True
+                pos = idx + 1
 
         report["claims"] = kept
         report["abstain"] = abstain
